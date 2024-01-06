@@ -41,14 +41,6 @@ class ISTE(nn.Module):
         #self.lte_value = nn.Linear(64, hidden_dim)
         #self.lte_key = nn.Linear(64, hidden_dim)
 
-    def _momentum_update_rgb_decoder(self):
-        """
-        Momentum update of the key encoder
-        """
-        for param_texture, param_texture_auxiliary in zip(self.imnet_texture.parameters(),
-                                                          self.imnet_texture_auxiliary.parameters()):
-            param_texture.data = param_texture.data * self.m + param_texture_auxiliary.data * (1. - self.m)
-
     def gen_feat(self, inp):
         self.inp = inp
         self.feat_coord = make_coord(inp.shape[-2:], flatten=False).cuda() \
