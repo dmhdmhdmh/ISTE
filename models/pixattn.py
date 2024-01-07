@@ -47,6 +47,7 @@ class PatchEmbeding(nn.Module):
 
         return x
 
+# Local Feature Interactor模块
 @register('pixattn')
 class pix_attn(nn.Module):
 
@@ -80,7 +81,7 @@ class pix_attn(nn.Module):
                                     groups=in_dim)
 
         self.reflec_pad = nn.ReflectionPad2d(padding=padding_turple)
-
+    # view_as_windows函数实现特征图分窗，为每个大小为h×w×64的特征图FLR的每个向量分配一个3×3大小的window
     def view_as_windows(self, arr_in, window_size, step=1):
 
         # -- basic checks on arguments
@@ -133,8 +134,8 @@ class pix_attn(nn.Module):
         x = x.reshape(B * C, H, W).cpu().detach().numpy()
         #x = x.reshape(B * C, H, W).numpy()
         x = self.view_as_windows(x, (B * C, self.window_size, self.window_size), step=1)
-        #x = rearrange(x,"b n1 n2 c h w -> b (n1 n2) c h w") #(b,48*48,64,16,16)
-        x = rearrange(x, "1 n1 n2 (b c) h w -> b (n1 n2) c h w", b=B, c=C)  # (b,48*48,64,16,16)
+        #x = rearrange(x,"b n1 n2 c h w -> b (n1 n2) c h w") #(b,48*48,64,3,3)
+        x = rearrange(x, "1 n1 n2 (b c) h w -> b (n1 n2) c h w", b=B, c=C)  # (b,48*48,64,3,3)
         x = torch.tensor(x).cuda()
         #x = torch.tensor(x)
         #x = torch.split(x, C, dim=2)
@@ -157,24 +158,24 @@ class pix_attn(nn.Module):
         B_, _, H_, W_ = x.size()
         x_raw = rearrange(x, "b c h w -> (b h w) 1 c ")  # (b*48*48,1,64)***********************
         x = self.enpadding_process(x)
-        x = rearrange(x, "b n c h w -> (b n) c h w")  # (b*48*48,64,16,16)
+        x = rearrange(x, "b n c h w -> (b n) c h w")  # (b*48*48,64,3,3)
         B, C, H, W = x.size()
         L = H * W
-        x_ = x.reshape(B, C, self.window_size, self.window_size)  # (B,C,16,16)
+        x_ = x.reshape(B, C, self.window_size, self.window_size)  # (B,C,3,3)
         x = x.reshape(B, L, C)
 
         # K & V
         if self.is_pooling == True:
             x_f = self.pooling(x_)  # (B,C,4,4)
             x_f = x_f.view(B, -1, C)  # (b*48*48,4*4,64) ************************
-            # insert global info
+            # insert global info，窗口内特征向量的平均池化结果
             if self.g_pooling:
                 x_g = self.g_pooling(x.transpose(1, 2)).transpose(1, 2)  # (B,1,C)
-                x_f = torch.cat((x_g, x_f), dim=1)  # (B,17,C)
+                x_f = torch.cat((x_g, x_f), dim=1)  # (B,10,C)
         else:  # depth-conv
             x_f = self.depth_conv(x_)
             x_f = x_f.view(B, -1, C)  # (B,8*8,C)
-
+        # 注意力机制q,k,v计算
         q_a = self.qk_linear(x_raw).reshape(B, 1, 2, self.num_heads, self.in_dim // self.num_heads).permute(2, 0, 3, 1,
                                                                                                             4)
         q, q_ = q_a[0], q_a[1]
@@ -186,7 +187,7 @@ class pix_attn(nn.Module):
                                                                                                                    4)
         k, v = kv[0], kv[1]  # (B,n,l,d)
 
-        # attn
+        # 注意力系数attn计算
         q = q * self.scale
         attn = q @ k.transpose(-2, -1)  # (B,n,L,l)
         # insert self info
@@ -194,7 +195,7 @@ class pix_attn(nn.Module):
 
         attn = self.softmax(attn)
 
-        # value
+        # 最终输出F_LFI
         x_fusion = (attn[:, :, :, :-1] @ v).transpose(1, 2).reshape(B, 1, C)
         x_sole = (attn[:, :, :, -1].unsqueeze(-1) * q_).transpose(1, 2).reshape(B, 1, C)
         x = x_sole + x_fusion
