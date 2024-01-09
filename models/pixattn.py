@@ -196,9 +196,10 @@ class pix_attn(nn.Module):
         attn = self.softmax(attn)
 
         # 最终输出F_LFI
-        x_fusion = (attn[:, :, :, :-1] @ v).transpose(1, 2).reshape(B, 1, C)
-        x_sole = (attn[:, :, :, -1].unsqueeze(-1) * q_).transpose(1, 2).reshape(B, 1, C)
-        x = x_sole + x_fusion
+        # x_fusion = (attn[:, :, :, :-1] @ v).transpose(1, 2).reshape(B, 1, C)
+        # x_sole = (attn[:, :, :, -1].unsqueeze(-1) * q_).transpose(1, 2).reshape(B, 1, C)
+        # x = x_sole + x_fusion
+        x = (attn[:, :, :, :-1] @ v).transpose(1, 2).reshape(B, 1, C) 
         x = self.proj(x)
         x = self.proj_drop(x)
         x = rearrange(x, "(b h w) 1 c -> b (1 c) h w", h=H_, w=W_, b=B_)
